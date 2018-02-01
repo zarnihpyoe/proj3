@@ -111,6 +111,12 @@ Top-level functions
                                 [fn w]))))
       (numV 30))
 
+(test (run-v '(with ([x 3])
+                    (with ([fn (fun () x)])
+                          (seq (set x 5)
+                               (fn)))))
+      (numV 5))
+
 
 
 

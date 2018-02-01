@@ -424,11 +424,11 @@ Mutation (multiple arguments)
 ;; all exprs evaluated in the same Environment
 ;; (but of course the Store is threaded)
 (define (interp-list [exprs : (listof ExprC)] [env : Env] [sto : Store]) : Results
-  ;;(undefined))
-  (let* ([lstR (chain-interp exprs env sto)]
-         [ns (v*s-s (last lstR))]
-         [lstV (map v*s-v lstR)])
-    (vs*s lstV ns)))
+  (cond [(empty? exprs) (vs*s empty sto)]
+        [else (let* ([lstR (chain-interp exprs env sto)]
+                     [ns (v*s-s (last lstR))]
+                     [lstV (map v*s-v lstR)])
+                (vs*s lstV ns))]))
 
 ;; get the last element of the given list
 (define (last x)
@@ -502,5 +502,4 @@ Mutation (multiple arguments)
 ;; a run-command returning values and stores
 (define (run sexp)
      (interp (desugar (parse sexp)) mt-env mt-store))
-
 
