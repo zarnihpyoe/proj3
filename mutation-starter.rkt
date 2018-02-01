@@ -97,9 +97,21 @@ Mutation (multiple arguments)
 ;; A more robust implementation, not making assumptions about how
 ;; fetch will be implemented.
 (define (override-store [c : Storage] [sto : Store]) : Store
-  (undefined)
-  )
-           
+  (let* ([l (cell-location c)])
+    (if (in-store? l sto)
+        (if (= l (cell-location (first sto)))
+            (cons c (rest sto))
+            (cons (first sto) (override-store c (rest sto))))
+        (cons c sto))))
+
+;; in-store? Location x Store = boolean
+;; checking whether location l is already allocated inside the store s
+(define (in-store? [l : Location] [sto : Store]) : boolean
+  (cond [(empty? sto) false]
+        [(cons? sto) (or [= l (cell-location (first sto))]
+                         [in-store? l (rest sto)])]))
+
+
 ;;
 ;; Results
 ;;
@@ -320,19 +332,49 @@ Mutation (multiple arguments)
       [numC (n)            (v*s (numV n) sto)]
       [plusC (l r)         (interp-arith num+ l r env sto)]
       [multC (l r)         (interp-arith num* l r env sto)]
-      [idC (i)             (undefined)]
+      [idC (i)             (let* ([loc (lookup i env)]
+                                  [val (fetch loc sto)])
+                             (v*s val sto))]
       [lamC (params body)  (v*s (closV params body env) sto)]
-      [appC (f a)  (apply f a env sto)]
+      [appC (f a)          (apply f a env sto)]
       [if0C (c t e)        (let* ([cr (interp c env sto)]
                                   [cv (v*s-v cr)]
                                   [cs (v*s-s cr)])
                              (cond [(num0? cv) (interp t env cs)]
                                    [else (interp e env cs)]))]
-      [boxC (a)            (undefined)]
-      [unboxC (a)          (undefined)]
-      [setboxC (b v)       (undefined)]
-      [seqC (b1 b2)        (undefined)]
-      [setC (var val)      (undefined)]
+      [boxC (a)            (let* ([vr (interp a env sto)]
+                                  [vv (v*s-v vr)]
+                                  [vs (v*s-s vr)];; ***
+                                  [nl (new-loc)]
+                                  [sg (cell nl vv)]
+                                  [ns (override-store sg vs)])
+                             (v*s (boxV nl) ns))]
+      [unboxC (a)          (let* ([ar (interp a env sto)]
+                                  [av (v*s-v ar)]
+                                  [as (v*s-s ar)];; ***
+                                  [l  (boxloc av)])
+                             (v*s (fetch l as) as))]
+      [setboxC (b v)       (let* ([br (interp b env sto)]
+                                  [bv (v*s-v br)]
+                                  [bs (v*s-s br)];; ***
+                                  [l  (boxloc bv)]
+                                  [vr (interp v env bs)]
+                                  [vv (v*s-v vr)]
+                                  [vs (v*s-s vr)];; ***
+                                  [sg (cell l vv)]
+                                  [ns (override-store sg vs)])
+                             (v*s vv ns))]
+      [seqC (b1 b2)        (let* ([b1r (interp b1 env sto)]
+                                  [b1s (v*s-s b1r)];; ***
+                                  [b2r (interp b2 env b1s)])
+                             b2r)]
+      [setC (i val)        (let* ([vr (interp val env sto)]
+                                  [vv  (v*s-v vr)]
+                                  [vs  (v*s-s vr)];; ***
+                                  [loc (lookup i env)]
+                                  [sg  (cell loc vv)]
+                                  [ns  (override-store sg vs)])
+                             (v*s vv ns))]
       ))
 
 ;; interp-arith - abstraction of interpreting arith related codes
@@ -352,22 +394,22 @@ Mutation (multiple arguments)
   (let* (
          (num-args        (length args))
          ;; eval the function
-         (f-result        (compute-closure f env sto (length args)) )
-         (f-value         (undefined) )
-         (f-store         (undefined))
+         (f-result        (compute-closure f env sto num-args) )
+         (f-value         (v*s-v f-result))
+         (f-store         (v*s-s f-result));; ***
          ;; extract the closure fields
-         (f-params        (undefined))
-         (f-bdy           (undefined) )
-         (f-env           (undefined))
+         (f-params        (closV-params f-value))
+         (f-bdy           (closV-body f-value))
+         (f-env           (closV-env f-value))
          
          ;; eval the arguments. 
          (args-results    (interp-list args env f-store))
-         (args-values     (undefined) )
-         (args-store      (undefined))
+         (args-values     (vs*s-vs args-results))
+         (args-store      (vs*s-s  args-results));; ***
          ;; make a new environment and a new store
-         (new-locs        (undefined) )
-         (new-env         (undefined) )
-         (new-store       (undefined))
+         (new-locs        (new-loc-list num-args))
+         (new-env         (update-env env f-params new-locs))
+         (new-store       (update-store args-store new-locs args-values))
          )
    ;; go for it
     (interp f-bdy new-env new-store)
@@ -381,7 +423,42 @@ Mutation (multiple arguments)
 ;; all exprs evaluated in the same Environment
 ;; (but of course the Store is threaded)
 (define (interp-list [exprs : (listof ExprC)] [env : Env] [sto : Store]) : Results
-  (undefined))
+  ;;(undefined))
+  (let* ([lstR (chain-interp exprs env sto)]
+         [ns (v*s-s (last lstR))]
+         [lstV (map v*s-v lstR)])
+    (vs*s lstV ns)))
+
+;; get the last element of the given list
+(define (last x)
+  (list-ref x (- (length x) 1)))
+
+
+;; update-env : Env x (listof symbol) x (listof Location) -> Env
+;; update (right to left) the given env with each binding (param_i loc_i) where i ranges the length of the list params = locs
+(define (update-env [env : Env] [params : (listof symbol)] [locs : (listof Location)]) : Env
+  (cond [(empty? locs) env]
+        [(cons?  locs) (extend-env (bind (first params) (first locs))
+                                   (update-env env (rest params) (rest locs)))]))
+
+;; left to right
+;; update-store : Store x (listof Location) x (listof Value) -> Store
+;; update (left to right) the given store with each storage (loc_i val_i) where i ranges the length of the list vals = locs
+(define (update-store [sto : Store] [locs : (listof Location)] [vals : (listof Value)]) : Store
+  (cond [(empty? locs) sto]
+        [(cons?  locs) (let* ([sg (cell (first locs) (first vals))])
+                         (update-store (override-store sg sto)
+                                       (rest locs)
+                                       (rest vals)))]))
+
+;; ...
+(define (chain-interp [exprs : (listof ExprC)] [env : Env] [sto : Store]) : (listof Result)
+  (cond [(empty? exprs) empty]
+        [(cons? exprs)  (let* ([er (interp (first exprs) env sto)]
+                               ;;[ev (v*s-v er)]
+                               [es (v*s-s er)]);; ***
+                          (cons er
+                                (chain-interp (rest exprs) env es)))]))
 
 ;; compute-closure :  ExprC x Env x Store x number ->  Result
 ;; Evaluate the first argument w.r.t. the given environment and store
