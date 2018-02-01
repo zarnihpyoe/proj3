@@ -4,7 +4,7 @@ Testing the interpreter for
 Top-level functions
 |#
 
-(require "mutation-starter.rkt")
+(require "mutation.zphyo.rkt")
 
 ;;(test (new-number) 1)
 ;;(test (new-number) 2)
@@ -94,6 +94,23 @@ Top-level functions
                           (seq (setbox x 11)
                                (unbox y))))) (numV 11))
 
+(test (run-v '(with ([fn (fun (w h) (* w h))])
+                    (seq [set fn (fun (w h) (* w (+ h 1)))]
+                         [fn 2 3])))
+      (numV 8))
+
+(test (run-v '(with ([fn (fun (w h) (* (unbox w) (unbox h)))])
+                    (seq [set fn (fun (w h) (* (unbox w) (setbox h 10)))]
+                         [fn (box 2) (box 3)])))
+      (numV 20))
+
+(test (run-v '(with ([w  (box 2)]
+                     [h  (box 10)])
+                     (with ([fn (fun (w) (* (unbox w) (unbox h)))])
+                           (seq [set w (box 3)]
+                                [fn w]))))
+      (numV 30))
+
 
 
 
@@ -101,23 +118,16 @@ Top-level functions
 ;; ==========
 
 ;; parse-time errors
-;;; (test/exn (run '(+ 1 2 3)) "arguments")
-;;; (test/exn (run '(fun (x x) 0)) "multiple")
+(test/exn (run '(+ 1 2 3)) "arguments")
+(test/exn (run '(fun (x x) 0)) "multiple")
+(test/exn (run '(seq )) "empty seq")
 
 ;; interp-time errors
-(test/exn (run '(set a 0)) "unbound identifier")
+(test/exn (run '(set a 0)) "unbound")
+(test/exn (run '(unbox 1)) "not a box")
 
+(test/exn (run '(+ (box 1) 1)) "not a number")
+(test/exn (run '(* 1 (box 1))) "not a number")
 
-;; delete these...
-;; =====================================
-;;; (test/exn (desugar (parse '(seq) ))
-;;;       "empty seq")
-;;; (test (desugar (parse '(seq 1 2) ))
-;;;       (seqC (numC 1) (numC 2)))
-;;; (test (desugar (parse '(seq 0 1 2) ))
-;;;       (seqC (numC 0)
-;;;             (seqC (numC 1) (numC 2))))
-
-;;; (test (interp-list (list (numC 1) (numC 2) (numC 3))
-;;;                     mt-env mt-store)
-;;;       (vs*s (list [numV 1] [numV 2] [numV 3]) mt-store))
+(test/exn (run '((fun (x y) x) 3)) "length")
+(test/exn (run '( ((fun (x) x) 3) 4)) "non-closure")

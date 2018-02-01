@@ -377,8 +377,9 @@ Mutation (multiple arguments)
                              (v*s vv ns))]
       ))
 
+;; interp-arith : (Value Value -> Value) x ExprC x ExprC x Env x Store -> Result
 ;; interp-arith - abstraction of interpreting arith related codes
-(define (interp-arith f l r env sto) : Result
+(define (interp-arith [f : (Value Value -> Value)] [l : ExprC] [r : ExprC] [env : Env] [sto : Store] ) : Result
   (let* ([lr (interp l env sto)]
          [lv (v*s-v lr)]
          [ls (v*s-s lr)]
