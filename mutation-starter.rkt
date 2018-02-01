@@ -200,7 +200,10 @@ Mutation (multiple arguments)
     [seqS (exprs)
           ;; NOTE: if exprs in empty, throw this
           ;; (error 'desugar "empty seq not allowed")]
-             (undefined)]  
+             (cond [(empty? exprs) (error 'desugar "empty seq not allowed")]
+                   [(= 2 (length exprs)) (seqC (desugar (first exprs)) (desugar (second exprs)))]
+                   [else (seqC (desugar (first exprs))
+                               (desugar (seqS (rest exprs))))])]
     [setS (var arg) (setC var (desugar arg))]
     ))
 
@@ -318,7 +321,7 @@ Mutation (multiple arguments)
       [plusC (l r)         (interp-arith num+ l r env sto)]
       [multC (l r)         (interp-arith num* l r env sto)]
       [idC (i)             (undefined)]
-      [lamC (params body)  (undefined)]
+      [lamC (params body)  (v*s (closV params body env) sto)]
       [appC (f a)  (apply f a env sto)]
       [if0C (c t e)        (let* ([cr (interp c env sto)]
                                   [cv (v*s-v cr)]
